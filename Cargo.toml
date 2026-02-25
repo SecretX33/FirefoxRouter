@@ -3,7 +3,13 @@ name = "FirefoxRouter"
 version = "0.1.0"
 edition = "2024"
 
+[dependencies]
+regex = "1.12.3"
+serde = { version = "1.0.228", features = ["derive"] }
+winreg = "0.55"
+wmi = "0.18.3"
+
 [profile.release]
-opt-level = 3
+opt-level = 's'
 lto = true
 debug = "line-tables-only"
