@@ -2,12 +2,16 @@
 name = "FirefoxRouter"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [dependencies]
 regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
 winreg = "0.55"
 wmi = "0.18.3"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
 
 [profile.release]
 opt-level = 's'

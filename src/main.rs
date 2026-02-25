@@ -120,7 +120,7 @@ fn register() -> Result<(), Box<dyn std::error::Error>> {
     let (client, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter")?;
     client.set_value("", &"FirefoxRouter")?;
     let (caps, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities")?;
-    caps.set_value("ApplicationName", &"FirefoxRouter")?;
+    caps.set_value("ApplicationName", &"Firefox Router")?;
     caps.set_value("ApplicationDescription", &"Routes URLs to Firefox using the active profile")?;
     let (url_assoc, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities\URLAssociations")?;
     url_assoc.set_value("http", &"FirefoxRouterURL")?;
