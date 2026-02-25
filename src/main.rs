@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use regex::Regex;
 use serde::Deserialize;
 use std::path::PathBuf;
