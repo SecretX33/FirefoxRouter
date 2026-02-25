@@ -2,5 +2,12 @@
 name = "FirefoxRouter"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
-[dependencies]
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = "line-tables-only"
