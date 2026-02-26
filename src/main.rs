@@ -1,34 +1,37 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use regex::Regex;
-use serde::Deserialize;
+use color_eyre::Result;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-use winreg::RegKey;
-use wmi::WMIConnection;
+use sysinfo::{Process, System};
 
 #[macro_use]
 mod log_macro;
 
-#[derive(Debug, Deserialize)]
-#[serde(rename = "Win32_Process")]
-#[serde(rename_all = "PascalCase")]
-struct Win32Process {
-    process_id: u32,
-    command_line: Option<String>,
+#[derive(Debug, PartialEq, Eq)]
+struct FirefoxInfo {
+    path: String,
+    profile_name: Option<String>,
 }
 
-#[cfg(windows)]
-fn main() {
-    if let Err(e) = run() {
-        eprintln!("Error: {e}");
-        std::process::exit(1);
+impl PartialOrd for FirefoxInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
-#[cfg(windows)]
-fn run() -> Result<(), Box<dyn std::error::Error>> {
+impl Ord for FirefoxInfo {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let profile_cmp = match (&self.profile_name, &other.profile_name) {
+            (Some(self_profile), Some(other_profile)) => self_profile.cmp(other_profile),
+            (a, b) => b.cmp(a),
+        };
+        profile_cmp.then_with(|| self.path.cmp(&other.path))
+    }
+}
+
+fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(|s| s.as_str()) {
@@ -38,62 +41,108 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-fn handle_link(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
-    debug_log!("URL: {:?}", args);
+fn handle_link(args: Vec<String>) -> Result<()> {
+    debug_log!("Args: {:?}", args);
 
-    let wmi = WMIConnection::new()?;
+    let sys = System::new_all();
+    let processes = sys.processes().values();
 
-    let processes: Vec<Win32Process> = wmi.raw_query(
-        "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'firefox.exe'",
-    )?;
+    let mut firefox_processes = processes
+        .filter(|it| is_firefox_process(it))
+        .filter_map(|it| get_firefox_info(it))
+        .collect::<Vec<_>>();
 
-    // Inspect each Firefox process for a profile flag
-    let re_profile = Regex::new(r#"-profile\s+"?([^"]+)"?"#)?;
-    let re_dash_p = Regex::new(r#"-P\s+"?([^"]+)"?"#)?;
+    firefox_processes.sort();
 
-    for proc in &processes {
-        let cmd = match &proc.command_line {
-            Some(c) if !c.trim().is_empty() => c,
-            _ => continue,
-        };
-
-        let matcher = re_profile.captures(cmd)
-            .or_else(|| re_dash_p.captures(cmd));
-
-        // Check for `-P <profileName>` and `-profile <profilePath>`
-        if let Some(caps) = matcher {
-            let process_id = proc.process_id;
-            let profile_name = caps.get(1).unwrap().as_str();
-            debug_log!("Found Firefox with profile currently in use by {process_id}: {profile_name}");
-            open_with_firefox(args, Some(profile_name))?;
-            return Ok(());
-        }
+    if firefox_processes.len() == 0 {
+        debug_log!("No Firefox processes found, opening link in the default profile");
+        open_with_firefox(args, None)?;
+        return Ok(());
     }
 
-    debug_log!("Didn't spot any Firefox with profile currently in use, opening link in the default profile");
-    open_with_firefox(args, None)?;
+    let first_info = firefox_processes.first().unwrap();
+    if first_info.profile_name.is_some() {
+        debug_log!("Found existing Firefox process with an active profile");
+    } else {
+        debug_log!("Didn't spot any Firefox with profile currently in use, opening link in the default profile");
+    }
+
+    open_with_firefox(args, Some(first_info))?;
 
     Ok(())
 }
 
+fn is_firefox_process(it: &Process) -> bool {
+    it.cmd().first()
+        .and_then(|s| {
+            Path::new(s)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.eq_ignore_ascii_case("firefox.exe"))
+        })
+        .unwrap_or(false)
+}
+
+fn get_firefox_info(it: &Process) -> Option<FirefoxInfo> {
+    let cmd = it.cmd();
+    if cmd.len() == 0 {
+        debug_log!("Attempted to get Firefox info for a process with no command line arguments");
+        return None;
+    }
+
+    let path = cmd.first().map(|s| s.to_string_lossy()).unwrap().into_owned();
+    let profile_name = cmd.into_iter()
+        .skip_while(|&s| s != "-P" && s != "-profile")
+        .skip(1).next()
+        .map(|s| s.to_string_lossy().into_owned());
+
+    Some(FirefoxInfo {
+        path,
+        profile_name,
+    })
+}
+
 fn open_with_firefox(
     args: Vec<String>,
-    profile_name: Option<&str>,
+    firefox_info: Option<&FirefoxInfo>,
 ) -> std::io::Result<Child> {
-    let firefox_path = find_firefox();
-    debug_log!("Using Firefox at: {}", firefox_path.display());
+    let firefox_path = firefox_info.map(|it| it.path.as_str())
+        .map(PathBuf::from)
+        .unwrap_or_else(find_firefox);
+    debug_log!("Using Firefox at: {}, profile: {}", firefox_path.display(), firefox_info.and_then(|it| it.profile_name.as_deref()).unwrap_or("<none>"));
 
     let mut command = Command::new(&firefox_path);
-    if let Some(profile_name) = profile_name {
+    if let Some(profile_name) = firefox_info.and_then(|it| it.profile_name.as_deref()) {
         command.arg("-P").arg(profile_name);
     }
     for arg in &args {
-        command.arg(arg);
+        command.arg("-url").arg(arg);
     }
     command.spawn()
 }
 
-fn register() -> Result<(), Box<dyn std::error::Error>> {
+fn find_firefox() -> PathBuf {
+    #[cfg(windows)] {
+        use winreg::enums::HKEY_LOCAL_MACHINE;
+        use winreg::RegKey;
+
+        let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+        let result = hklm.open_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe")
+            .and_then(|it| it.get_value::<String, _>(""));
+        if let Ok(path) = result {
+            return PathBuf::from(path);
+        }
+    }
+
+    // Last resort: hope it's on PATH
+    PathBuf::from("firefox.exe")
+}
+
+#[cfg(windows)]
+fn register() -> Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
     let exe_path = std::env::current_exe()?.to_string_lossy().into_owned();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
@@ -139,11 +188,15 @@ fn register() -> Result<(), Box<dyn std::error::Error>> {
     let (reg_apps, _) = hkcu.create_subkey(r"SOFTWARE\RegisteredApplications")?;
     reg_apps.set_value("FirefoxRouter", &r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities")?;
 
-    log!("FirefoxRouter registered as a browser. Open Settings > Default Apps to set it as default.");
+    log!("FirefoxRouter registered as a browser. Open Settings > Default Apps to set it as default");
     Ok(())
 }
 
-fn unregister() -> Result<(), Box<dyn std::error::Error>> {
+#[cfg(windows)]
+fn unregister() -> Result<()> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
     // Remove ProgIDs
@@ -158,17 +211,6 @@ fn unregister() -> Result<(), Box<dyn std::error::Error>> {
         let _ = reg_apps.delete_value("FirefoxRouter");
     }
 
-    log!("FirefoxRouter unregistered.");
+    log!("FirefoxRouter unregistered");
     Ok(())
-}
-
-fn find_firefox() -> PathBuf {
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    let result = hklm.open_subkey(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\firefox.exe")
-        .and_then(|it| it.get_value::<String, _>(""));
-    if let Ok(path) = result {
-        return PathBuf::from(path);
-    }
-    // Last resort: hope it's on PATH
-    PathBuf::from("firefox.exe")
 }

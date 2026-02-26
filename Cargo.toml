@@ -5,10 +5,11 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-regex = "1.12.3"
-serde = { version = "1.0.228", features = ["derive"] }
+color-eyre = { version = "0.6.5", default-features = false }
+sysinfo = { version = "0.38.2", features = ["system"], default-features = false }
+
+[target.'cfg(windows)'.dependencies]
 winreg = "0.55"
-wmi = "0.18.3"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
