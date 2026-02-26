@@ -5,6 +5,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use sysinfo::{Process, System};
+use winreg::enums::KEY_ALL_ACCESS;
 
 #[macro_use]
 mod log_macro;
@@ -143,6 +144,8 @@ fn register() -> Result<()> {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
+    unregister()?;
+
     let exe_path = std::env::current_exe()?.to_string_lossy().into_owned();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
@@ -161,24 +164,24 @@ fn register() -> Result<()> {
     let (html_class, _) = hkcu.create_subkey(r"SOFTWARE\Classes\FirefoxRouterHTML")?;
     html_class.set_value("", &"FirefoxRouter HTML Document")?;
     let (html_icon, _) = hkcu.create_subkey(r"SOFTWARE\Classes\FirefoxRouterHTML\DefaultIcon")?;
-    html_icon.set_value("", &format!("{exe_path},0"))?;
+    html_icon.set_value("", &format!("{exe_path},1"))?;
     let (html_cmd, _) = hkcu.create_subkey(r"SOFTWARE\Classes\FirefoxRouterHTML\shell\open\command")?;
     html_cmd.set_value("", &format!("\"{exe_path}\" \"%1\""))?;
 
     // StartMenuInternet client
     let (client, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter")?;
-    client.set_value("", &"FirefoxRouter")?;
+    client.set_value("", &"Firefox Router")?;
     let (caps, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities")?;
     caps.set_value("ApplicationName", &"Firefox Router")?;
     caps.set_value("ApplicationDescription", &"Routes URLs to Firefox using the active profile")?;
-    let (url_assoc, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities\URLAssociations")?;
-    url_assoc.set_value("http", &"FirefoxRouterURL")?;
-    url_assoc.set_value("https", &"FirefoxRouterURL")?;
     let (file_assoc, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities\FileAssociations")?;
     file_assoc.set_value(".htm", &"FirefoxRouterHTML")?;
     file_assoc.set_value(".html", &"FirefoxRouterHTML")?;
     let (start_menu, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities\StartMenu")?;
     start_menu.set_value("StartMenuInternet", &"FirefoxRouter")?;
+    let (url_assoc, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\Capabilities\URLAssociations")?;
+    url_assoc.set_value("http", &"FirefoxRouterURL")?;
+    url_assoc.set_value("https", &"FirefoxRouterURL")?;
     let (client_icon, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\DefaultIcon")?;
     client_icon.set_value("", &format!("{exe_path},0"))?;
     let (client_cmd, _) = hkcu.create_subkey(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter\shell\open\command")?;
@@ -207,7 +210,7 @@ fn unregister() -> Result<()> {
     let _ = hkcu.delete_subkey_all(r"SOFTWARE\Clients\StartMenuInternet\FirefoxRouter");
 
     // Remove RegisteredApplications entry
-    if let Ok(reg_apps) = hkcu.open_subkey(r"SOFTWARE\RegisteredApplications") {
+    if let Ok(reg_apps) = hkcu.open_subkey_with_flags(r"SOFTWARE\RegisteredApplications", KEY_ALL_ACCESS) {
         let _ = reg_apps.delete_value("FirefoxRouter");
     }
 
