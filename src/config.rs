@@ -1,6 +1,6 @@
 use crate::glob::Glob;
 use color_eyre::Result;
-use regex::Regex;
+use regex_lite::Regex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 use std::fs;

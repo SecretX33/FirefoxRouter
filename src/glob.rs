@@ -1,6 +1,6 @@
 use color_eyre::eyre::{eyre, ContextCompat};
-use color_eyre::{Report, Result};
-use regex::Regex;
+use color_eyre::Result;
+use regex_lite::Regex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 

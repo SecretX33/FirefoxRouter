@@ -4,7 +4,7 @@ use crate::config::{load_env_file, read_app_config};
 use color_eyre::Result;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::Command;
 use sysinfo::{Process, System};
 use winreg::enums::KEY_ALL_ACCESS;
 
