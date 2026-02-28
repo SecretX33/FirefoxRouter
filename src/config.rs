@@ -35,7 +35,7 @@ pub fn read_app_config() -> Result<Option<AppConfig>> {
         std::env::var("CONFIG_PATH").ok()
     } else {
         None
-    }.unwrap_or("config.json".to_owned());
+    }.unwrap_or("FirefoxRouter.json".to_owned());
 
     let file_contents = match fs::read_to_string(&path) {
         Ok(contents) => {
