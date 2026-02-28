@@ -1,19 +1,27 @@
 use color_eyre::eyre::{eyre, ContextCompat};
-use color_eyre::Result;
+use color_eyre::{Report, Result};
 use regex::Regex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Clone)]
-pub struct Glob(Regex);
+pub struct Glob {
+    with_protocol: Regex,
+    without_protocol: Regex,
+}
 
 impl Glob {
     pub fn new(glob: &str) -> Result<Self> {
-        Ok(Self(glob_to_regex(glob)?))
+        build_glob(glob)
     }
 
     pub fn is_match(&self, url: &str) -> bool {
-        self.0.is_match(url)
+        let protocol_index = url.find(PROTOCOL_SEPARATOR);
+        let regex = match protocol_index {
+            Some(_) => &self.with_protocol,
+            None => &self.without_protocol,
+        };
+        regex.is_match(url)
     }
 }
 
@@ -29,10 +37,23 @@ impl<'de> Deserialize<'de> for Glob {
 
 const MATCH_ONE_SEGMENT: &str = r"[^\.:/]*?";
 const MATCH_ANYTHING: &str = ".*?";
+const PROTOCOL_SEPARATOR: &str = "://";
 
-fn glob_to_regex(glob: &str) -> Result<Regex> {
-    let protocol_index = glob.find("://")
+fn build_glob(glob: &str) -> Result<Glob> {
+    let protocol_index = glob.find(PROTOCOL_SEPARATOR)
         .with_context(|| eyre!("Invalid glob '{glob}', missing protocol separator '://'"))?;
+    let glob_without_protocol = &glob[(protocol_index + PROTOCOL_SEPARATOR.len())..];
+
+    let with_protocol = glob_to_regex(glob, protocol_index)?;
+    let without_protocol = glob_to_regex(glob_without_protocol, 0)?;
+
+    Ok(Glob {
+        with_protocol,
+        without_protocol,
+    })
+}
+
+fn glob_to_regex(glob: &str, protocol_index: usize) -> Result<Regex> {
     let url_query_params_index = glob.chars().skip(protocol_index + 1)
         .position(|c| c == '?')
         .map(|it| it + protocol_index + 1);
@@ -50,7 +71,7 @@ fn glob_to_regex(glob: &str) -> Result<Regex> {
                 regex_pattern.push_str("/?");
             }
             ('*', Some('*')) => {
-                let pattern = if index < protocol_index  {
+                let pattern = if index < protocol_index {
                     MATCH_ONE_SEGMENT // We are in the start of the URL, match only the protocol
                 } else {
                     MATCH_ANYTHING
