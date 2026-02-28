@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::config::read_app_config;
+use crate::config::{load_env_file, read_app_config};
 use color_eyre::Result;
 use std::path::Path;
 use std::path::PathBuf;
@@ -36,6 +36,7 @@ impl Ord for FirefoxInfo {
 }
 
 fn main() -> Result<()> {
+    load_env_file();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(|s| s.as_str()) {
@@ -137,7 +138,7 @@ fn get_firefox_info(it: &Process) -> Option<FirefoxInfo> {
 fn open_with_firefox(
     args: Vec<String>,
     firefox_info: Option<&FirefoxInfo>,
-) -> std::io::Result<Child> {
+) -> std::io::Result<()> {
     let firefox_path = firefox_info.map(|it| it.path.as_str())
         .map(PathBuf::from)
         .unwrap_or_else(find_firefox);
@@ -150,7 +151,14 @@ fn open_with_firefox(
     for arg in &args {
         command.arg("-url").arg(arg);
     }
-    command.spawn()
+
+    #[cfg(debug_assertions)] {
+        if std::env::var("DISABLE_LINK_OPENING") == Ok("true".to_owned()) {
+            debug_log!("Link opening disabled, not spawning process");
+            return Ok(());
+        }
+    }
+    command.spawn().map(|_| ())
 }
 
 fn find_firefox() -> PathBuf {

@@ -1,10 +1,9 @@
-use std::fs;
-use std::path::PathBuf;
 use crate::glob::Glob;
+use color_eyre::Result;
 use regex::Regex;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
-use color_eyre::Result;
+use std::fs;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
@@ -32,21 +31,36 @@ impl<'de> Deserialize<'de> for MyRegex {
 }
 
 pub fn read_app_config() -> Result<Option<AppConfig>> {
-    debug_log!("Reading config file: {:?}", PathBuf::from(".").canonicalize()?);
-    let file_contents = match fs::read_to_string("config.json") {
+    let path = if cfg!(debug_assertions) {
+        std::env::var("CONFIG_PATH").ok()
+    } else {
+        None
+    }.unwrap_or("config.json".to_owned());
+
+    let file_contents = match fs::read_to_string(&path) {
         Ok(contents) => {
             if contents.trim().is_empty() {
+                debug_log!("Config file is empty");
                 return Ok(None);
             }
+            debug_log!("Config file found: {}", path);
             Some(contents)
         },
         Err(e) => {
             if e.kind() != std::io::ErrorKind::NotFound {
+                debug_log!("Error reading config file: {}", e);
                 return Err(e.into());
             }
+            debug_log!("Config file not found");
             None
         }
     };
     let parsed_config = file_contents.map(|it| serde_json::from_str::<AppConfig>(&it)).transpose()?;
     Ok(parsed_config)
+}
+
+pub fn load_env_file() {
+    #[cfg(debug_assertions)] {
+        dotenvy::from_path_override(".env").ok();
+    }
 }
