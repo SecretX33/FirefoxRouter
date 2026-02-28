@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use crate::config::read_app_config;
 use color_eyre::Result;
 use std::path::Path;
 use std::path::PathBuf;
@@ -9,6 +10,8 @@ use winreg::enums::KEY_ALL_ACCESS;
 
 #[macro_use]
 mod log_macro;
+mod config;
+mod glob;
 
 #[derive(Debug, PartialEq, Eq)]
 struct FirefoxInfo {
@@ -38,12 +41,18 @@ fn main() -> Result<()> {
     match args.first().map(|s| s.as_str()) {
         Some("--register") => register(),
         Some("--unregister") => unregister(),
-        _ => handle_link(args)
+        _ => handle_links(args)
     }
 }
 
-fn handle_link(args: Vec<String>) -> Result<()> {
+fn handle_links(args: Vec<String>) -> Result<()> {
     debug_log!("Args: {:?}", args);
+
+    let args = filter_args(&args)?;
+    if args.len() == 0 {
+        debug_log!("All URLs got filtered out, nothing to do");
+        return Ok(());
+    }
 
     let sys = System::new_all();
     let processes = sys.processes().values();
@@ -69,8 +78,30 @@ fn handle_link(args: Vec<String>) -> Result<()> {
     }
 
     open_with_firefox(args, Some(first_info))?;
-
     Ok(())
+}
+
+fn filter_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<String>> {
+    let Some(config) = read_app_config()? else {
+        debug_log!("No config file found, not filtering URLs");
+        return Ok(args.into_iter().map(|s| s.as_ref().to_owned()).collect());
+    };
+
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
+    let filtered_args: Vec<_> = args.iter().filter(|&url| {
+        config.ignored_urls.iter().all(|it| !it.is_match(url))
+            && config.ignored_urls_regex.iter().all(|it| !it.as_ref().is_match(url))
+    }).cloned().collect();
+
+    if filtered_args.len() != args.len() {
+        debug_log!(
+            "Removed {} URLs from the list due to configured URL filtering rules ({} -> {})",
+            args.len() - filtered_args.len(),
+            args.len(),
+            filtered_args.len()
+        );
+    }
+    Ok(filtered_args)
 }
 
 fn is_firefox_process(it: &Process) -> bool {

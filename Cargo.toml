@@ -6,6 +6,9 @@ build = "build.rs"
 
 [dependencies]
 color-eyre = { version = "0.6.5", default-features = false }
+regex = { version = "1.12.3", features = ["std", "perf", "unicode-case", "unicode-perl", "unicode-segment"], default-features = false }
+serde = { version = "1.0.228", features = ["derive", "std"] }
+serde_json = "1.0.149"
 sysinfo = { version = "0.38.2", features = ["system"], default-features = false }
 
 [target.'cfg(windows)'.dependencies]
