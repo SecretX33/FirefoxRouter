@@ -1,7 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use crate::config::{load_env_file, read_app_config};
+use crate::config::{read_app_config, AppConfig};
+use crate::util::{get_current_exe_path, load_env_file};
 use color_eyre::Result;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,6 +15,7 @@ use winreg::enums::KEY_ALL_ACCESS;
 mod log_macro;
 mod config;
 mod glob;
+mod util;
 
 #[derive(Debug, PartialEq, Eq)]
 struct FirefoxInfo {
@@ -49,7 +53,13 @@ fn main() -> Result<()> {
 fn handle_links(args: Vec<String>) -> Result<()> {
     debug_log!("Args: {:?}", args);
 
-    let args = filter_args(&args)?;
+    let config = read_app_config()?;
+
+    for item in args.iter() {
+        log_url_to_file(config.as_ref(), item)?;
+    }
+
+    let args = filter_args(config.as_ref(), &args)?;
     if args.len() == 0 {
         debug_log!("All URLs got filtered out, nothing to do");
         return Ok(());
@@ -82,8 +92,30 @@ fn handle_links(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-fn filter_args(args: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Vec<String>> {
-    let Some(config) = read_app_config()? else {
+fn log_url_to_file(
+    config: Option<&AppConfig>,
+    url: &str,
+) -> Result<()> {
+    let now = chrono::Local::now();
+    let Some(path) = config.and_then(|it| it.logging.as_ref())
+        .filter(|&it| it.enabled)
+        .map(|it| it.path.as_path()) else {
+        debug_log!("Logging disabled, not writing to file");
+        return Ok(());
+    };
+
+    let file = File::options().append(true).create(true).open(path)?;
+    let mut writer = BufWriter::new(&file);
+    let time = now.format("%Y-%m-%dT%H:%M:%S%:z").to_string();
+    writeln!(&mut writer, "[{time}] Requested URL open: {url}")?;
+    Ok(writer.flush()?)
+}
+
+fn filter_args(
+    config: Option<&AppConfig>,
+    args: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<Vec<String>> {
+    let Some(config) = config else {
         debug_log!("No config file found, not filtering URLs");
         return Ok(args.into_iter().map(|s| s.as_ref().to_owned()).collect());
     };
@@ -185,7 +217,7 @@ fn register() -> Result<()> {
 
     unregister()?;
 
-    let exe_path = std::env::current_exe()?.to_string_lossy().into_owned();
+    let exe_path = get_current_exe_path().to_string_lossy().into_owned();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
     log!("Current exe path: {exe_path}");
