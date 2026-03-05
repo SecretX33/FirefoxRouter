@@ -1,14 +1,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use crate::config::{read_app_config, AppConfig};
+use crate::util::{get_current_exe_path, load_env_file};
 use color_eyre::Result;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::Command;
 use sysinfo::{Process, System};
 use winreg::enums::KEY_ALL_ACCESS;
 
 #[macro_use]
 mod log_macro;
+mod config;
+mod glob;
+mod util;
 
 #[derive(Debug, PartialEq, Eq)]
 struct FirefoxInfo {
@@ -33,17 +40,30 @@ impl Ord for FirefoxInfo {
 }
 
 fn main() -> Result<()> {
+    load_env_file();
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(|s| s.as_str()) {
         Some("--register") => register(),
         Some("--unregister") => unregister(),
-        _ => handle_link(args)
+        _ => handle_links(args)
     }
 }
 
-fn handle_link(args: Vec<String>) -> Result<()> {
+fn handle_links(args: Vec<String>) -> Result<()> {
     debug_log!("Args: {:?}", args);
+
+    let config = read_app_config()?;
+
+    for item in args.iter() {
+        log_url_to_file(config.as_ref(), item)?;
+    }
+
+    let args = filter_args(config.as_ref(), &args)?;
+    if args.len() == 0 {
+        debug_log!("All URLs got filtered out, nothing to do");
+        return Ok(());
+    }
 
     let sys = System::new_all();
     let processes = sys.processes().values();
@@ -69,8 +89,52 @@ fn handle_link(args: Vec<String>) -> Result<()> {
     }
 
     open_with_firefox(args, Some(first_info))?;
-
     Ok(())
+}
+
+fn log_url_to_file(
+    config: Option<&AppConfig>,
+    url: &str,
+) -> Result<()> {
+    let now = chrono::Local::now();
+    let Some(path) = config.and_then(|it| it.logging.as_ref())
+        .filter(|&it| it.enabled)
+        .map(|it| it.path.as_path()) else {
+        debug_log!("Logging disabled, not writing to file");
+        return Ok(());
+    };
+
+    let file = File::options().append(true).create(true).open(path)?;
+    let mut writer = BufWriter::new(&file);
+    let time = now.format("%Y-%m-%dT%H:%M:%S%:z").to_string();
+    writeln!(&mut writer, "[{time}] Requested URL open: {url}")?;
+    Ok(writer.flush()?)
+}
+
+fn filter_args(
+    config: Option<&AppConfig>,
+    args: impl IntoIterator<Item = impl AsRef<str>>,
+) -> Result<Vec<String>> {
+    let Some(config) = config else {
+        debug_log!("No config file found, not filtering URLs");
+        return Ok(args.into_iter().map(|s| s.as_ref().to_owned()).collect());
+    };
+
+    let args: Vec<String> = args.into_iter().map(|s| s.as_ref().to_owned()).collect();
+    let filtered_args: Vec<_> = args.iter().filter(|&url| {
+        config.ignored_urls.iter().all(|it| !it.is_match(url))
+            && config.ignored_urls_regex.iter().all(|it| !it.as_ref().is_match(url))
+    }).cloned().collect();
+
+    if filtered_args.len() != args.len() {
+        debug_log!(
+            "Removed {} URLs from the list due to configured URL filtering rules ({} -> {})",
+            args.len() - filtered_args.len(),
+            args.len(),
+            filtered_args.len()
+        );
+    }
+    Ok(filtered_args)
 }
 
 fn is_firefox_process(it: &Process) -> bool {
@@ -106,7 +170,7 @@ fn get_firefox_info(it: &Process) -> Option<FirefoxInfo> {
 fn open_with_firefox(
     args: Vec<String>,
     firefox_info: Option<&FirefoxInfo>,
-) -> std::io::Result<Child> {
+) -> std::io::Result<()> {
     let firefox_path = firefox_info.map(|it| it.path.as_str())
         .map(PathBuf::from)
         .unwrap_or_else(find_firefox);
@@ -119,7 +183,14 @@ fn open_with_firefox(
     for arg in &args {
         command.arg("-url").arg(arg);
     }
-    command.spawn()
+
+    #[cfg(debug_assertions)] {
+        if std::env::var("DISABLE_LINK_OPENING") == Ok("true".to_owned()) {
+            debug_log!("Link opening disabled, not spawning process");
+            return Ok(());
+        }
+    }
+    command.spawn().map(|_| ())
 }
 
 fn find_firefox() -> PathBuf {
@@ -146,7 +217,7 @@ fn register() -> Result<()> {
 
     unregister()?;
 
-    let exe_path = std::env::current_exe()?.to_string_lossy().into_owned();
+    let exe_path = get_current_exe_path().to_string_lossy().into_owned();
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
 
     log!("Current exe path: {exe_path}");
