@@ -18,6 +18,27 @@ To unregister:
 FirefoxRouter.exe --unregister
 ```
 
+## Configuration
+
+Optionally, place a `FirefoxRouter.json` file next to the executable:
+
+```json
+{
+  "ignored_urls": ["*://example.com/*"],
+  "ignored_urls_regex": ["(?i)^https?://ads\\.example\\.com/"],
+  "logging": {
+    "enabled": true,
+    "path": "C:\\logs\\urls.log"
+  }
+}
+```
+
+- **`ignored_urls`** — URL patterns to ignore. Supports simple glob expressions: `*` matches a single segment (no dots, slashes, or colons), while `**` matches anything including multiple segments.
+- **`ignored_urls_regex`** — URL patterns to ignore using regular expressions.
+- **`logging`** — When enabled, logs all incoming URLs to the specified file.
+
+All fields are optional.
+
 ## Building
 
 Requires the [Rust toolchain](https://rustup.rs/).
