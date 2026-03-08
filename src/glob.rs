@@ -67,7 +67,7 @@ fn glob_to_regex(glob: &str, protocol_index: usize) -> Result<Regex> {
         let next = glob.chars().nth(index + 1);
 
         match (current, next) {
-            ('/', _) if (url_query_params_index.is_none() && index > protocol_index + 2)
+            ('/', _) if (url_query_params_index.is_none() && next.is_none())
                 || Some(index + 1) == url_query_params_index => {
                 regex_pattern.push_str("/?");
             }
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn double_star_subdomain_deep() {
-        assert_matches("https://**/*.com", "https://sub.domain.example.com");
+        assert_matches("https://**.com", "https://sub.domain.example.com");
     }
 
     /// Protocol wildcard
@@ -511,9 +511,9 @@ mod tests {
     }
 
     #[test]
-    fn path_slashes_still_optional() {
-        // Internal path slashes should remain optional (the fix only protects protocol slashes)
-        assert_matches("https://example.com/a/b", "https://example.com/ab");
+    fn path_slashes_are_mandatory() {
+        // Internal path slashes must match literally
+        assert_no_match("https://example.com/a/b", "https://example.com/ab");
     }
 
     /// Real-world patterns
