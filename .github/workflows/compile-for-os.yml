@@ -156,7 +156,7 @@ jobs:
           echo "=== Release folder contents ==="
           dir ${{ needs.build_variables.outputs.release_folder }}
           echo "=== Zipping binary ==="
-          tar.exe -a -c -f ${{ needs.build_variables.outputs.release_folder }}\${{ needs.build_variables.outputs.binary_name }} -C ${{ needs.build_variables.outputs.release_folder }} firefoxRouter.exe
+          tar.exe -a -c -f ${{ needs.build_variables.outputs.release_folder }}\${{ needs.build_variables.outputs.binary_name }} -C ${{ needs.build_variables.outputs.release_folder }} FirefoxRouter.exe
 
       - name: Zip binary (Linux/MacOS)
         if: needs.os_info.outputs.os_name != 'windows'
@@ -165,7 +165,7 @@ jobs:
           echo "=== Release folder contents ==="
           ls -la ${{ needs.build_variables.outputs.release_folder }}
           echo "=== Zipping binary ==="
-          zip -j ${{ needs.build_variables.outputs.release_folder }}/${{ needs.build_variables.outputs.binary_name }} ${{ needs.build_variables.outputs.release_folder }}/firefoxRouter
+          zip -j ${{ needs.build_variables.outputs.release_folder }}/${{ needs.build_variables.outputs.binary_name }} ${{ needs.build_variables.outputs.release_folder }}/FirefoxRouter
 
       - name: Move zipped binary
         run: mv -v ${{ needs.build_variables.outputs.release_folder }}/${{ needs.build_variables.outputs.binary_name }} dist/
