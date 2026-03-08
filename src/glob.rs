@@ -93,6 +93,10 @@ fn glob_to_regex(glob: &str, protocol_index: usize) -> Result<Regex> {
                     regex_pattern.push('\\');
                 }
                 regex_pattern.push(current);
+
+                if current != '/' && Some(index + 1) == url_query_params_index {
+                    regex_pattern.push_str("/?");
+                }
             }
         }
         index += 1;
@@ -281,7 +285,10 @@ mod tests {
 
     #[test]
     fn query_slash_before_question_optional() {
-        assert_matches("https://example.com/search?q=test", "https://example.com/search?q=test");
+        // Glob without slash before ? should match URL with slash before ?
+        assert_matches("https://example.com/search?q=test", "https://example.com/search/?q=test");
+        assert_matches("https://example.com/search/?q=test", "https://example.com/search?q=test");
+        assert_matches("https://example.com/search/?q=test", "https://example.com/search/?q=test");
     }
 
     #[test]
@@ -293,6 +300,27 @@ mod tests {
     #[test]
     fn query_without_slash_before_question() {
         assert_matches("https://example.com/path/?q=1", "https://example.com/path?q=1");
+    }
+
+    #[test]
+    fn query_slash_optional_domain_only() {
+        // Domain with query params: slash before ? is optional
+        assert_matches("https://example.com?q=1", "https://example.com/?q=1");
+        assert_matches("https://example.com/?q=1", "https://example.com?q=1");
+    }
+
+    #[test]
+    fn query_slash_optional_without_protocol() {
+        // Without-protocol matching also gets optional slash before ?
+        assert_matches("https://example.com/path?q=1", "example.com/path/?q=1");
+        assert_matches("https://example.com/path/?q=1", "example.com/path?q=1");
+    }
+
+    #[test]
+    fn query_wildcard_before_question() {
+        assert_matches("https://example.com/*?q=*", "https://example.com/search?q=test");
+        // * doesn't cross /, so /search/ won't match when * is right before ?
+        assert_no_match("https://example.com/*?q=*", "https://example.com/search/?q=test");
     }
 
     /// Trailing slash
@@ -313,9 +341,10 @@ mod tests {
     }
 
     #[test]
-    fn trailing_slash_not_optional_with_query() {
-        // When query params are present, trailing slash behavior doesn't apply to end
-        assert_matches("https://example.com/path?q=1", "https://example.com/path?q=1");
+    fn slash_before_query_optional_both_directions() {
+        // Slash before ? is optional regardless of which side has it
+        assert_matches("https://example.com/path?q=1", "https://example.com/path/?q=1");
+        assert_matches("https://example.com/path/?q=1", "https://example.com/path?q=1");
     }
 
     /// Case insensitivity
